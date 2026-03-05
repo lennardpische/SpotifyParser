@@ -36,7 +36,9 @@ def main():
     print("\n--- 🕐 Fetching your Recently Played (listening history)... ---")
     recent_list = tracks.fetch_recently_played(sp, limit=50)
     tracks.warn_if_new_recently_played_list(recent_list, out_dir)
-    all_tracks = playlist_track_list + liked_list + recent_list
+    # Merge into persistent history (distinct by track_id); use full DB for CSV
+    listening_history = tracks.merge_recently_played_into_history(recent_list, out_dir)
+    all_tracks = playlist_track_list + liked_list + listening_history
     print(f"--- ✅ Fetched {len(all_tracks)} tracks total ---")
 
     tracks_path = tracks.save_tracks_csv(all_tracks, out_dir)

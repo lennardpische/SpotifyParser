@@ -8,6 +8,7 @@
 *.pem
 
 # User data exports
+listening_history.json
 last_recently_played.json
 my_playlists.csv
 my_tracks.csv

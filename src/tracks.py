@@ -4,6 +4,7 @@ import os
 import config
 
 LAST_RECENTLY_PLAYED_FILE = "last_recently_played.json"
+LISTENING_HISTORY_FILE = "listening_history.json"
 
 
 def _track_row(playlist_name, playlist_id, track, played_at=""):
@@ -120,6 +121,51 @@ def warn_if_new_recently_played_list(recent_rows, out_dir=None):
                 json.dump({"signature": current_sig}, f)
         except OSError:
             pass
+
+
+def _load_listening_history(out_dir):
+    """Load accumulated listening history from disk. Returns list of track row dicts."""
+    path = os.path.join(out_dir, LISTENING_HISTORY_FILE)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_listening_history(rows, out_dir):
+    """Persist accumulated listening history to disk."""
+    path = os.path.join(out_dir, LISTENING_HISTORY_FILE)
+    try:
+        with open(path, "w") as f:
+            json.dump(rows, f, indent=0)
+    except OSError:
+        pass
+
+
+def merge_recently_played_into_history(recent_rows, out_dir=None):
+    """Merge this run's recently played into persistent history (distinct by track_id).
+    New tracks are appended; existing track_ids get played_at updated to latest.
+    Returns the full accumulated list for use in my_tracks.csv.
+    """
+    out_dir = out_dir or config.get_output_dir()
+    # keyed by track_id -> full row (keep latest played_at)
+    by_id = {}
+    for row in _load_listening_history(out_dir):
+        tid = row.get("track_id")
+        if tid:
+            by_id[tid] = row
+    for row in recent_rows:
+        tid = row.get("track_id")
+        if not tid:
+            continue
+        # New or update: keep this row (newer played_at if we're seeing it again)
+        by_id[tid] = row
+    merged = list(by_id.values())
+    _save_listening_history(merged, out_dir)
+    return merged
 
 
 def save_tracks_csv(tracks, out_dir=None):
