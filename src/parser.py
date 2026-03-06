@@ -1,4 +1,4 @@
-"""Main entry: load config, auth, fetch playlists and tracks, save CSVs."""
+"""Main entry: load config, auth, fetch playlists and tracks; save library to CSV, listening history to JSON."""
 import sys
 import os
 
@@ -31,21 +31,22 @@ def main():
 
     print("\n--- 📀 Fetching tracks from your playlists... ---")
     playlist_track_list = tracks.fetch_playlist_tracks(sp, playlists_list)
-    print("\n--- ❤️ Fetching your Liked Songs... ---")
+    print("\n--- 🎵 Fetching your Liked Songs... ---")
     liked_list = tracks.fetch_liked_tracks(sp)
     print("\n--- 🕐 Fetching your Recently Played (listening history)... ---")
     recent_list = tracks.fetch_recently_played(sp, limit=50)
     tracks.warn_if_new_recently_played_list(recent_list, out_dir)
-    # Merge into persistent history (distinct by track_id); use full DB for CSV
+    # Merge into persistent history (distinct by track_id)
     listening_history = tracks.merge_recently_played_into_history(recent_list, out_dir)
-    all_tracks = playlist_track_list + liked_list + listening_history
-    print(f"--- ✅ Fetched {len(all_tracks)} tracks total ---")
+    print(f"--- ✅ Listening history: {len(listening_history)} tracks (accumulated in listening_history.json) ---")
 
-    tracks_path = tracks.save_tracks_csv(all_tracks, out_dir)
-    if tracks_path:
-        print(f"--- 💾 Saved to {tracks_path} (use this for personalized recs) ---")
+    # CSV: playlists + liked only (no recently played)
+    library_tracks = playlist_track_list + liked_list
+    csv_path = tracks.save_tracks_csv(library_tracks, out_dir)
+    if csv_path:
+        print(f"--- 💾 Saved to {csv_path} (playlists + liked songs only) ---")
     else:
-        print("--- ⚠️ No tracks to save. Check playlist visibility and scope. ---")
+        print("--- ⚠️ No library tracks to save. ---")
 
 
 if __name__ == "__main__":

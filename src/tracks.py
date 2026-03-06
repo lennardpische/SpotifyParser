@@ -123,9 +123,14 @@ def warn_if_new_recently_played_list(recent_rows, out_dir=None):
             pass
 
 
+def _listening_history_path(out_dir):
+    """Absolute path to the persistent listening history file."""
+    return os.path.abspath(os.path.join(out_dir or config.get_output_dir(), LISTENING_HISTORY_FILE))
+
+
 def _load_listening_history(out_dir):
     """Load accumulated listening history from disk. Returns list of track row dicts."""
-    path = os.path.join(out_dir, LISTENING_HISTORY_FILE)
+    path = _listening_history_path(out_dir)
     if not os.path.exists(path):
         return []
     try:
@@ -137,7 +142,7 @@ def _load_listening_history(out_dir):
 
 def _save_listening_history(rows, out_dir):
     """Persist accumulated listening history to disk."""
-    path = os.path.join(out_dir, LISTENING_HISTORY_FILE)
+    path = _listening_history_path(out_dir)
     try:
         with open(path, "w") as f:
             json.dump(rows, f, indent=0)
@@ -147,33 +152,38 @@ def _save_listening_history(rows, out_dir):
 
 def merge_recently_played_into_history(recent_rows, out_dir=None):
     """Merge this run's recently played into persistent history (distinct by track_id).
-    New tracks are appended; existing track_ids get played_at updated to latest.
-    Returns the full accumulated list for use in my_tracks.csv.
+    New tracks are added; existing track_ids get played_at updated to latest.
+    Returns the full accumulated list, newest first, for use in my_tracks.csv.
     """
     out_dir = out_dir or config.get_output_dir()
-    # keyed by track_id -> full row (keep latest played_at)
+    existing = _load_listening_history(out_dir)
     by_id = {}
-    for row in _load_listening_history(out_dir):
+    for row in existing:
         tid = row.get("track_id")
         if tid:
             by_id[tid] = row
+    added = 0
     for row in recent_rows:
         tid = row.get("track_id")
         if not tid:
             continue
-        # New or update: keep this row (newer played_at if we're seeing it again)
+        if tid not in by_id:
+            added += 1
         by_id[tid] = row
     merged = list(by_id.values())
+    # Newest first (by played_at) so "new on top" in the output
+    merged.sort(key=lambda r: r.get("played_at") or "", reverse=True)
     _save_listening_history(merged, out_dir)
+    print(f"    Listening history: {len(existing)} existing + {added} new = {len(merged)} total")
     return merged
 
 
 def save_tracks_csv(tracks, out_dir=None):
-    """Save track rows to my_tracks.csv. Returns path or None if no tracks."""
+    """Save track rows to my_tracks.csv (playlists + liked only, no recently played). Returns path or None if no tracks."""
     import pandas as pd
     out_dir = out_dir or config.get_output_dir()
     if not tracks:
         return None
-    path = os.path.join(out_dir, "my_tracks.csv")
+    path = os.path.abspath(os.path.join(out_dir, "my_tracks.csv"))
     pd.DataFrame(tracks).to_csv(path, index=False)
     return path
