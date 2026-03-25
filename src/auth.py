@@ -6,10 +6,10 @@ from spotipy.oauth2 import SpotifyOAuth
 
 import config
 
-
+#Opening the authentication URL in an incognito/private browser window
 def _open_auth_url_incognito(url):
     """Open URL in an incognito/private browser window (macOS)."""
-    print("--- 🔗 Open this URL in an incognito/private window to log in ---")
+    print("--- Open this URL in an incognito/private window to log in ---")
     print(url)
     print("---")
     for app_name, flag in [
@@ -36,7 +36,7 @@ def _open_auth_url_incognito(url):
 # Patch webbrowser so Spotify auth opens in incognito
 webbrowser.open = _open_auth_url_incognito
 
-
+#Getting the Spotify client
 def get_spotify_client():
     """Return an authenticated Spotipy client."""
     auth_manager = SpotifyOAuth(

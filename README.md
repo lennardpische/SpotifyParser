@@ -15,7 +15,11 @@ Secrets live in `.env`. Run `python3 src/parser.py` to refresh playlists, liked,
 
 ## Next steps
 
-- **Seed-based recs:** I'll use `my_tracks.csv` / `listening_history.json` `track_id` (and optionally artist) with [Spotify Get Recommendations](https://developer.spotify.com/documentation/web-api/reference/get-recommendations). 
-- **Audio features:** I'll call [Get Track's Audio Features](https://developer.spotify.com/documentation/web-api/reference/get-audio-features) for my tracks and use the features as extra seeds or for similarity. (most likely option)
-- **NLP / embeddings:** I'll run sentence-transformers (e.g. `all-MiniLM-L6-v2`) on `track_name` + `artist` + `album` and use cosine similarity or k-NN for "similar tracks" in my data.
-- **Sequence / transformer:** I'll treat listening order (e.g. `played_at`) as a sequence, train a next-track or next-embedding model (PyTorch), and use predictions with Spotify's API or a lookup.
+### Phase 1 — Sentence-transformer embeddings (works now)
+Embed every track in `my_tracks.csv` using `track_name + artist + album` with a model like `all-MiniLM-L6-v2` (`sentence-transformers` library). At inference time, embed the most recently played tracks from `listening_history.json` and retrieve nearest neighbors by cosine similarity. No extra Spotify API calls needed at inference.
+
+### Phase 2 — Audio features as enriched input
+Call [Get Track's Audio Features](https://developer.spotify.com/documentation/web-api/reference/get-audio-features) for all tracks in `my_tracks.csv` to get `energy`, `valence`, `tempo`, `danceability`, etc. Concatenate these feature vectors with the text embeddings from Phase 1 for richer similarity, or train a small feedforward net to learn a personal preference score per track.
+
+### Phase 3 — Sequential transformer / next-track prediction (needs accumulated history)
+Treat `listening_history.json` ordered by `played_at` as a token sequence and train a transformer-based next-item model (e.g. BERT4Rec or a small GPT-style model in PyTorch). 50 tracks is too little data — run the script regularly to build up history first. This mirrors how Spotify's own rec engine works and is the highest-ceiling approach.
