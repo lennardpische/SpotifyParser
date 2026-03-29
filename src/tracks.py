@@ -1,4 +1,4 @@
-"""Fetch playlist tracks and liked songs from Spotify."""
+"""Fetch recently played tracks and manage listening history."""
 import json
 import os
 import config
@@ -7,12 +7,10 @@ LAST_RECENTLY_PLAYED_FILE = "last_recently_played.json"
 LISTENING_HISTORY_FILE = "listening_history.json"
 
 
-def _track_row(playlist_name, playlist_id, track, played_at=""):
-    """Build a single track row dict. played_at is optional (for listening history)."""
+def _track_row(track, played_at=""):
+    """Build a single track row dict."""
     artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
     return {
-        "playlist_name": playlist_name,
-        "playlist_id": playlist_id,
         "track_name": track.get("name", ""),
         "artist": artists,
         "track_id": track.get("id", ""),
@@ -21,65 +19,8 @@ def _track_row(playlist_name, playlist_id, track, played_at=""):
     }
 
 
-def fetch_playlist_tracks(sp, playlists):
-    """Fetch all tracks from the given playlists. Returns list of track row dicts."""
-    all_tracks = []
-    limit = 50
-    for pl in playlists:
-        pl_id, pl_name, pl_count = pl["id"], pl["name"], pl["tracks"]
-        if pl_id == "No ID" or pl_count == 0:
-            continue
-        offset = 0
-        while offset < pl_count:
-            try:
-                resp = sp._get(
-                    f"playlists/{pl_id}/items",
-                    limit=limit,
-                    offset=offset,
-                    additional_types="track",
-                )
-                for entry in resp.get("items", []):
-                    track = entry.get("item") or entry.get("track")
-                    if not track or track.get("type") != "track":
-                        continue
-                    all_tracks.append(_track_row(pl_name, pl_id, track, played_at=""))
-                offset += len(resp.get("items", []))
-                if not resp.get("next"):
-                    break
-            except Exception as e:
-                print(f"    ⚠️ Error fetching {pl_name}: {e}")
-                break
-    return all_tracks
-
-
-def fetch_liked_tracks(sp):
-    """Fetch user's saved (liked) tracks. Returns list of track row dicts."""
-    tracks = []
-    offset = 0
-    limit = 50
-    while True:
-        try:
-            resp = sp.current_user_saved_tracks(limit=limit, offset=offset)
-            items = resp.get("items", [])
-            if not items:
-                break
-            for entry in items:
-                track = entry.get("track")
-                if not track or track.get("type") != "track":
-                    continue
-                tracks.append(_track_row("Liked Songs", "liked", track, played_at=""))
-            offset += len(items)
-            if not resp.get("next"):
-                break
-        except Exception as e:
-            print(f"    ⚠️ Error fetching Liked Songs: {e}")
-            break
-    return tracks
-
-
 def fetch_recently_played(sp, limit=50):
-    """Fetch user's recently played tracks (listening history window).
-    Spotify only exposes a rolling window (~last 50 plays), not full history.
+    """Fetch user's recently played tracks (rolling window of ~50).
     Returns list of track row dicts with 'played_at' (ISO timestamp) set.
     """
     rows = []
@@ -89,31 +30,25 @@ def fetch_recently_played(sp, limit=50):
             track = item.get("track")
             if not track or track.get("type") != "track":
                 continue
-            played_at = item.get("played_at", "")  # ISO 8601
-            rows.append(_track_row("Recently Played", "recently_played", track, played_at=played_at))
+            rows.append(_track_row(track, played_at=item.get("played_at", "")))
     except Exception as e:
         print(f"    ⚠️ Error fetching Recently Played: {e}")
     return rows
 
 
 def warn_if_new_recently_played_list(recent_rows, out_dir=None):
-    """Warn once when the 50 recently-played window has rotated to a new set.
-    Persists the last seen list and compares on next run.
-    """
+    """Warn once when the 50 recently-played window has rotated to a new set."""
     out_dir = out_dir or config.get_output_dir()
     state_path = os.path.join(out_dir, LAST_RECENTLY_PLAYED_FILE)
     if len(recent_rows) < 50:
         return
-    # Signature: ordered list of (track_id, played_at) for the 50
     current_sig = [(r["track_id"], r.get("played_at", "")) for r in recent_rows]
     try:
         if os.path.exists(state_path):
             with open(state_path) as f:
                 saved = json.load(f)
-            saved_sig = [tuple(x) for x in saved.get("signature", [])]
-            if saved_sig == current_sig:
+            if [tuple(x) for x in saved.get("signature", [])] == current_sig:
                 return
-        # New list of 50 (first run or window rotated)
         print("--- ⚠️ New list of 50 recently played songs (window has rotated). ---")
     finally:
         try:
@@ -124,12 +59,10 @@ def warn_if_new_recently_played_list(recent_rows, out_dir=None):
 
 
 def _listening_history_path(out_dir):
-    """Absolute path to the persistent listening history file."""
     return os.path.abspath(os.path.join(out_dir or config.get_output_dir(), LISTENING_HISTORY_FILE))
 
 
 def _load_listening_history(out_dir):
-    """Load accumulated listening history from disk. Returns list of track row dicts."""
     path = _listening_history_path(out_dir)
     if not os.path.exists(path):
         return []
@@ -141,7 +74,6 @@ def _load_listening_history(out_dir):
 
 
 def _save_listening_history(rows, out_dir):
-    """Persist accumulated listening history to disk."""
     path = _listening_history_path(out_dir)
     try:
         with open(path, "w") as f:
@@ -153,7 +85,7 @@ def _save_listening_history(rows, out_dir):
 def merge_recently_played_into_history(recent_rows, out_dir=None):
     """Merge this run's recently played into persistent history (distinct by track_id).
     New tracks are added; existing track_ids get played_at updated to latest.
-    Returns the full accumulated list, newest first, for use in my_tracks.csv.
+    Returns the full accumulated list, newest first.
     """
     out_dir = out_dir or config.get_output_dir()
     existing = _load_listening_history(out_dir)
@@ -170,22 +102,7 @@ def merge_recently_played_into_history(recent_rows, out_dir=None):
         if tid not in by_id:
             added += 1
         by_id[tid] = row
-    merged = list(by_id.values())
-    # Newest first (by played_at) so "new on top" in the output
-    merged.sort(key=lambda r: r.get("played_at") or "", reverse=True)
+    merged = sorted(by_id.values(), key=lambda r: r.get("played_at") or "", reverse=True)
     _save_listening_history(merged, out_dir)
     print(f"    Listening history: {len(existing)} existing + {added} new = {len(merged)} total")
     return merged
-
-
-def save_tracks_csv(tracks, out_dir=None):
-    """Save track rows to my_tracks.csv (playlists + liked only, no recently played). Returns path or None if no tracks."""
-    import pandas as pd
-    out_dir = out_dir or config.get_output_dir()
-    if not tracks:
-        return None
-    path = os.path.abspath(os.path.join(out_dir, "my_tracks.csv"))
-    pd.DataFrame(tracks).to_csv(path, index=False)
-    return path
-
-

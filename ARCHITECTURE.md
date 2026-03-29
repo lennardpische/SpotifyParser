@@ -6,7 +6,7 @@ Loads `.env` from the project root and exposes three credentials (`CLIENT_ID`, `
 ---
 
 ### `auth.py`
-Handles Spotify OAuth. Patches `webbrowser.open` so the auth URL opens in an incognito/private window (tries Chrome, then Chromium, then Firefox on macOS). Returns an authenticated `spotipy.Spotify` client with the scopes needed for playlists, liked songs, recently played, and user profile. The OAuth token is cached in `.cache` at the project root — delete it to force re-authentication.
+Handles Spotify OAuth. Patches `webbrowser.open` so the auth URL opens in an incognito/private window (tries Chrome, then Chromium, then Firefox on macOS). Returns an authenticated `spotipy.Spotify` client with the scopes needed for recently played and user profile. The OAuth token is cached in `.cache` at the project root — delete it to force re-authentication.
 
 ---
 

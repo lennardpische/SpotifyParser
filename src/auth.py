@@ -43,7 +43,7 @@ def get_spotify_client():
         client_id=config.CLIENT_ID,
         client_secret=config.CLIENT_SECRET,
         redirect_uri=config.REDIRECT_URI,
-        scope="playlist-read-private playlist-read-collaborative user-library-read user-read-private user-read-recently-played",
+        scope="user-read-private user-read-recently-played",
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth_manager)
