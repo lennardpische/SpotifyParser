@@ -13,3 +13,11 @@ last_recently_played.json
 my_playlists.csv
 my_tracks.csv
 *.csv
+
+# ML model cache
+sentence_transformers_cache/
+
+# macOS / Python artifacts
+.DS_Store
+__pycache__/
+*.pyc

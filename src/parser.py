@@ -10,6 +10,7 @@ import config
 import auth
 import playlists
 import tracks
+import recommendations
 
 
 def main():
@@ -47,6 +48,14 @@ def main():
         print(f"--- 💾 Saved to {csv_path} (playlists + liked songs only) ---")
     else:
         print("--- ⚠️ No library tracks to save. ---")
+
+    print("\n--- 🤖 Generating recommendations (sentence-transformer embeddings)... ---")
+    recs = recommendations.generate_recommendations(out_dir)
+    recs_path = recommendations.save_recommendations(recs, out_dir)
+    if recs_path:
+        print(f"--- 💾 Saved {len(recs)} recommendations to {recs_path} ---")
+    else:
+        print("--- ⚠️ No recommendations generated (not enough data yet). ---")
 
 
 if __name__ == "__main__":
