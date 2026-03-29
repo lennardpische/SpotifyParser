@@ -27,11 +27,9 @@ There are three phases, each building on the last.
 
 ### Phase 1 — Text similarity (done)
 
-The simplest version: treat each track as a short text string — `"track name artist album"` --> and find songs in your library that are semantically close to what you've been listening to recently.
+Each track in the listening history is converted to a short text string — `"track name artist album"` — and embedded into a vector using `sentence-transformers` with the `all-MiniLM-L6-v2` model. The 5 most recently played songs become a query; the script finds the closest matches in the rest of the accumulated history.
 
-This uses `sentence-transformers` with the `all-MiniLM-L6-v2` model, a small pre-trained language model that converts text into vectors. Tracks with similar names, artists, or albums end up close together in that vector space. Your 5 most recently played songs become a query and the script finds the closest matches in your library.
-
-It works surprisingly well for finding more songs by the same artists or in the same genre cluster. It's less good at capturing *sound* (a quiet acoustic track and a loud electric one by the same artist look identical to this model, but we already explored why that is not fixable by individuals).
+It works well for surfacing tracks from your past that fit the current mood. It's less good at capturing raw sound — a quiet acoustic track and a loud electric one by the same artist look identical to this model.
 
 ### Phase 2 — Audio features (blocked)
 
@@ -86,8 +84,6 @@ This opens an incognito browser window for Spotify OAuth, then fetches your data
 
 | File | Contents |
 |---|---|
-| `my_playlists.csv` | All your playlists — name, ID, track count |
-| `my_tracks.csv` | Every track from your playlists + liked songs |
 | `listening_history.json` | Accumulated recently played, deduped by track, newest first |
 | `last_recently_played.json` | State snapshot for detecting when Spotify's 50-play window rotates |
 | `recommendations.csv` | Top 20 recommended tracks with similarity score |
@@ -102,10 +98,8 @@ All output files are gitignored.
 src/
   config.py          — loads .env, exposes credentials and output path
   auth.py            — OAuth flow, opens incognito browser on macOS
-  playlists.py       — fetches all playlists → my_playlists.csv
-  tracks.py          — fetches playlist tracks, liked songs, recently played;
-                       manages listening_history.json
-  recommendations.py — text embeddings → recommendations.csv
+  tracks.py          — fetches recently played, manages listening_history.json
+  recommendations.py — text embeddings over history → recommendations.csv
   parser.py          — orchestrates everything in order
 ```
 

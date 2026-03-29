@@ -18,35 +18,26 @@ def _track_text(row):
     return f"{row.get('track_name', '')} {row.get('artist', '')} {row.get('album', '')}".strip()
 
 
-def _load_library(out_dir):
-    path = os.path.join(out_dir, "my_tracks.csv")
-    if not os.path.exists(path):
-        return []
-    return pd.read_csv(path).fillna("").to_dict(orient="records")
-
-
-def _load_recent(out_dir, n=N_RECENT):
-    """Return the N most recent tracks from listening_history.json (already sorted newest first)."""
+def _load_history(out_dir):
+    """Load full listening history. Returns list of track dicts, newest first."""
     path = os.path.join(out_dir, "listening_history.json")
     if not os.path.exists(path):
         return []
     with open(path) as f:
-        return json.load(f)[:n]
+        return json.load(f)
 
 
 def generate_recommendations(out_dir=None):
-    """Embed library + recent tracks; return top N_RECS recs by cosine similarity."""
+    """Embed listening history; use most recent N tracks as query; return top N_RECS similar tracks."""
     out_dir = out_dir or config.get_output_dir()
 
-    library = _load_library(out_dir)
-    if not library:
-        print("    ⚠️ my_tracks.csv not found — run the script first to populate the library.")
+    history = _load_history(out_dir)
+    if len(history) < N_RECENT + 1:
+        print("    ⚠️ Not enough listening history yet — keep running the script to accumulate data.")
         return []
 
-    recent = _load_recent(out_dir)
-    if not recent:
-        print("    ⚠️ listening_history.json is empty — keep running the script to accumulate data.")
-        return []
+    recent = history[:N_RECENT]
+    library = history[N_RECENT:]  # everything older than the query window
 
     print(f"    Loading model '{MODEL_NAME}' ...")
     model = SentenceTransformer(MODEL_NAME)
