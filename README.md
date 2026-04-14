@@ -78,6 +78,30 @@ python3 src/parser.py
 
 This opens an incognito browser window for Spotify OAuth, then fetches your data and writes all output files to the project root. Re-run any time to add new recently played tracks to your history and refresh recommendations.
 
+**5. Run automatically every 12 hours (macOS)**
+
+A LaunchAgent is included that runs the script silently in the background without any special permissions. Load it once:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.spotifyparser.plist
+```
+
+To stop it:
+
+```bash
+./stop_parser.sh
+```
+
+Logs are written to `launchd_stdout.log` and `launchd_stderr.log` in the project root. If your Spotify token expires, a macOS notification will fire telling you to re-run the parser manually.
+
+**6. Review and dismiss recommendations**
+
+```bash
+python3 src/dismiss.py
+```
+
+Shows your current recommendations one at a time. Press `d` to dismiss, Enter to keep, `q` to quit. Dismissed tracks are saved to `dismissed.json` and permanently excluded from future runs.
+
 ---
 
 ## Output files
@@ -86,7 +110,10 @@ This opens an incognito browser window for Spotify OAuth, then fetches your data
 |---|---|
 | `listening_history.json` | Accumulated recently played, deduped by track, newest first |
 | `last_recently_played.json` | State snapshot for detecting when Spotify's 50-play window rotates |
-| `recommendations.csv` | Top 20 recommended tracks with similarity score |
+| `discovered_tracks.json` | Tracks from your seed artists' catalogs, fetched each run for discovery |
+| `recommendations.csv` | Top 20 recommended tracks with similarity score and source (history/discovery) |
+| `recommended_history.json` | All track IDs ever recommended — used to prevent repeats across runs. Delete to reset. |
+| `dismissed.json` | Tracks you've explicitly dismissed — permanently excluded from recommendations |
 
 All output files are gitignored.
 
@@ -98,12 +125,22 @@ All output files are gitignored.
 src/
   config.py          — loads .env, exposes credentials and output path
   auth.py            — OAuth flow, opens incognito browser on macOS
-  tracks.py          — fetches recently played, manages listening_history.json
-  recommendations.py — text embeddings over history → recommendations.csv
+  tracks.py          — fetches recently played and discovery tracks, manages history JSON files
+  recommendations.py — text embeddings over history + discovery pool → recommendations.csv
   parser.py          — orchestrates everything in order
+  dismiss.py         — interactive CLI to dismiss unwanted recommendations
 ```
 
 The OAuth token is cached in `.cache` (gitignored). Delete it to force re-authentication.
+
+### Recommendation pipeline
+
+Each run:
+1. Fetch the latest 50 recently played and merge into `listening_history.json`
+2. Browse the catalogs of your 5 most recently played artists to build a discovery pool (`discovered_tracks.json`)
+3. Embed all candidates (history + discovery, minus previously recommended and dismissed tracks) using `sentence-transformers`
+4. Use your 5 most recent plays as a query vector; return the 20 closest matches
+5. Persist recommended track IDs to `recommended_history.json` so they never repeat
 
 ---
 
@@ -111,3 +148,5 @@ The OAuth token is cached in `.cache` (gitignored). Delete it to force re-authen
 
 - **50-play window**: Spotify only exposes the last 50 recently played tracks via the API. The script accumulates these over time, but you have to run it frequently enough that the window doesn't rotate without you capturing it. A warning prints if the window has rotated since the last run.
 - **Library size**: The text embedding step runs locally on CPU. Large libraries (10k+ tracks) are slow but work fine.
+- **API restrictions**: Spotify deprecated the audio features, recommendations, and related-artists endpoints for basic developer apps in late 2024. Discovery here is based on browsing seed artists' own catalogs, not Spotify's similarity graph.
+- **`recommended_history.json` grows indefinitely**: over time the pool of unseen candidates shrinks. Delete the file to start fresh if recommendations run dry.
