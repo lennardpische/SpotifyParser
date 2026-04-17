@@ -1,12 +1,12 @@
-"""Recommendations: sentence-transformer text embeddings over the library,
-queried by the most recently played tracks in listening_history.json.
+"""Recommendations: sentence-transformer text embeddings.
 
-Pools both listening history and Spotify-discovered tracks as candidates.
-Filters out previously recommended tracks and user-dismissed tracks.
+Embeds the user's N most recently played tracks as a query, then ranks
+100 strictly-new Spotify-discovered tracks by cosine similarity.
+History tracks are never candidates — only new discoveries are surfaced.
+Filters out previously recommended and user-dismissed tracks.
 """
 import os
 import json
-import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer, util
 
@@ -18,7 +18,7 @@ RECS_FILE = "recommendations.csv"
 DISMISSED_FILE = "dismissed.json"
 RECOMMENDED_HISTORY_FILE = "recommended_history.json"
 N_RECENT = 5   # recent tracks used as the query
-N_RECS = 20    # recommendations to return
+N_RECS = 5     # recommendations to return
 
 
 def _track_text(row):
@@ -73,10 +73,10 @@ def _save_recommended_history(new_ids, out_dir):
 
 
 def generate_recommendations(out_dir=None, discovered=None):
-    """Embed candidate pool; use most recent N tracks as query; return top N_RECS.
+    """Embed discovery tracks; use most recent N history tracks as query; return top N_RECS.
 
-    Candidate pool = listening history (minus recent query window)
-                   + Spotify-discovered tracks (from discovered_tracks.json)
+    Candidate pool = strictly new Spotify-discovered tracks (never in listening history).
+    Query = the N most recently played tracks from listening history.
     Excludes tracks the user has dismissed or that were already recommended.
     """
     out_dir = out_dir or config.get_output_dir()
@@ -93,23 +93,13 @@ def generate_recommendations(out_dir=None, discovered=None):
     recent = history[:N_RECENT]
     recent_ids = {t.get("track_id") for t in recent}
 
-    # Build candidate pool: history (older than query window) tagged as "history"
-    history_pool = [{"source": "history", **t} for t in history[N_RECENT:]]
-
-    # Discovery pool: tracks Spotify surfaced, tagged as "discovery"
+    # Candidate pool: strictly new discovery tracks only (history is never a candidate)
     if discovered is None:
         discovered = tracks_module.load_discovered_tracks(out_dir)
-    history_track_ids = {t.get("track_id") for t in history}
-    discovery_pool = [
-        {"source": "discovery", **t}
-        for t in discovered
-        if t.get("track_id") and t["track_id"] not in history_track_ids
-    ]
 
-    # Merge pools, dedup by track_id, filtering exclusions
     seen_pool_ids = set()
     pool = []
-    for t in history_pool + discovery_pool:
+    for t in discovered:
         tid = t.get("track_id")
         if not tid or tid in seen_pool_ids or tid in recent_ids or tid in exclude_ids:
             continue
@@ -120,9 +110,7 @@ def generate_recommendations(out_dir=None, discovered=None):
         print("    ⚠️ No candidates left after filtering dismissed/already-recommended tracks.")
         return []
 
-    history_count = sum(1 for t in pool if t.get("source") == "history")
-    discovery_count = sum(1 for t in pool if t.get("source") == "discovery")
-    print(f"    Candidate pool: {history_count} from history, {discovery_count} from discovery")
+    print(f"    Candidate pool: {len(pool)} discovery tracks")
 
     print(f"    Loading model '{MODEL_NAME}' ...")
     model = SentenceTransformer(MODEL_NAME)

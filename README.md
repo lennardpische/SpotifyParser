@@ -1,47 +1,54 @@
 # SpotifyParser
 
-A personal tool for pulling Spotify data and generating music recommendations, built because the DJ was not the best at performing that task.
+A personal tool that accumulates your Spotify listening history and generates music recommendations — built because Spotify's own suggestions stopped being useful, and because the data to do better was sitting right there in their API.
+
+**Status: finally complete.**
 
 ---
 
 ## The problem
 
-Spotify's recommendations are a black box. You hear a song you love, add it to a playlist, and the app's suggestions still feel generic. There's only one way to ask it "find me more songs that sound like what I've been playing this week," but its recommendations are often terrible... though the data is there!
-Spotify computes audio features (energy, tempo, mood) for every track, but it's locked behind an API that's become increasingly hard to access.
-
-This project is my attempt to own that data myself and build something on top of it.
+Spotify's recommendation engine is a black box. You go through a phase where you're obsessively listening to one kind of music, and it still serves you the same playlist it would have six months ago. The data to do better exists — Spotify computes audio features (energy, tempo, mood, danceability) for every track in their catalog — but accessing it turned into a problem mid-project.
 
 ---
 
-## The API situation
+## The API situation (why the pivot happened)
 
-Spotify's Web API used to be wide open, but in late 2024, Spotify started restricting access. The `audio-features` endpoint (and several others) were moved behind an approval wall. New apps couldn't use them without manually applying for "Extended Quota Mode," a process that requires submitting a description, a demo, and waiting on a review that often just doesn't come.
+The original plan was to blend two signals: text similarity (what the song is called, who made it) and audio features (what it actually sounds like). That combination would have been much more accurate — two tracks by the same artist can sound completely different, and text alone can't tell them apart.
 
-This effectively killed most hobby projects that relied on that data. The endpoint still exists, but hitting it with a new app ID returns a 403. Individual developer accounts can't apply for Extended Quota Mode at all, as it's gated behind a review process that requires a commercial use case. So Phase 2 as originally designed (blending audio features with text similarity) isn't possible without a different data source for the acoustic properties.
+In late 2024, Spotify moved the `audio-features` endpoint behind "Extended Quota Mode" — a manual approval process requiring a commercial use case. Individual developers can't get through it. The endpoint still exists, it just returns a 403 for any new app. Same story for their `recommendations` endpoint.
+
+So the project pivoted to text-only similarity, using Spotify's artist catalog browsing (which is still open) as the source of new tracks to evaluate. It's a meaningful limitation, but the pipeline still works — it just can't hear the music, only read its label.
 
 ---
 
-## How SpotifyParser works
+## How it works
 
-There are three phases, each building on the last.
+**Step 1 — Build listening history**
 
-### Phase 1 — Text similarity (done)
+Every time the script runs, it pulls your last 50 recently played tracks from Spotify and merges them into a local `listening_history.json`, deduped by track ID. This is necessary because Spotify only exposes a rolling window of 50 plays — run the script often enough and you accumulate a real picture of what you've been listening to.
 
-Each track in the listening history is converted to a short text string — `"track name artist album"` — and embedded into a vector using `sentence-transformers` with the `all-MiniLM-L6-v2` model. The 5 most recently played songs become a query; the script finds the closest matches in the rest of the accumulated history.
+**Step 2 — Fetch new tracks to evaluate**
 
-It works well for surfacing tracks from your past that fit the current mood. It's less good at capturing raw sound — a quiet acoustic track and a loud electric one by the same artist look identical to this model.
+The script takes your 5 most recently played artists and browses their catalogs on Spotify — albums, singles, deep cuts. It pulls up to 100 tracks from those catalogs that you haven't heard before (anything already in your history is filtered out before it even enters the pool).
 
-### Phase 2 — Audio features (blocked)
+**Step 3 — Rank by text similarity**
 
-Spotify pre-computes numeric features for every track — energy, danceability, valence, acousticness, and more. The plan was to blend these with the text scores so recommendations reflect how a song actually sounds, not just what it's called.
+Each track — both the ones you've recently played and the new candidates — gets converted into a short text string: `"track name · artist · album"`. These strings are fed into a pre-trained sentence embedding model (`all-MiniLM-L6-v2` from HuggingFace), which turns each one into a vector of numbers that captures something about the meaning and context of the words.
 
-That endpoint is behind Extended Quota Mode, which individual developers can't access. Blocked for now.
+Your 5 most recent plays become a query: their vectors are averaged into a single point in that space. Every candidate track gets a similarity score based on how close it sits to that point. The top 5 are your recommendations.
 
-### Phase 3 — Sequence prediction (not yet)
+**Step 4 — Persist and deduplicate**
 
-The listening history is a sequence of songs, not just a set. There's information about what you play after what, how your taste shifts across a session. A small transformer trained on this sequence could learn to predict what comes next, closer to how Spotify's own system works internally.
+Recommended tracks are saved to `recommended_history.json` so they never come up again. Tracks you explicitly dismiss via `dismiss.py` go into `dismissed.json` and are also permanently excluded.
 
-This needs significantly more than 50 tracks of history to be useful. The script accumulates plays every time it runs, so this phase becomes viable over time.
+---
+
+## What "text similarity" actually means here
+
+The model doesn't know what a song sounds like. It was trained on large amounts of text and learned that certain words and phrases tend to appear in similar contexts. So "Radiohead · OK Computer" and "Thom Yorke · The Eraser" end up close together in its vector space — not because it knows they sound alike, but because it's seen those names discussed in similar contexts across the internet.
+
+This means the recommendations pick up on artist identity, scene, era, and genre naming conventions — but not timbre, tempo, or mood. A quiet acoustic track and a loud electric one by the same artist look identical to this model. That's the ceiling of the text-only approach, and it's where the audio features would have closed the gap.
 
 ---
 
@@ -76,15 +83,17 @@ pip install spotipy pandas python-dotenv sentence-transformers
 python3 src/parser.py
 ```
 
-This opens an incognito browser window for Spotify OAuth, then fetches your data and writes all output files to the project root. Re-run any time to add new recently played tracks to your history and refresh recommendations.
+Opens an incognito browser for Spotify OAuth, then fetches your data and writes output files to the project root. Re-run any time to pull new plays and refresh recommendations.
 
 **5. Run automatically every 12 hours (macOS)**
 
-A LaunchAgent is included that runs the script silently in the background without any special permissions. Load it once:
+A LaunchAgent is included. Load it once:
 
 ```bash
 launchctl load ~/Library/LaunchAgents/com.spotifyparser.plist
 ```
+
+> Note: (MAC users) the agent needs Full Disk Access to run if the project lives on `~/Desktop`. Grant it in System Settings → Privacy & Security → Full Disk Access, or move the project to `~/Documents`.
 
 To stop it:
 
@@ -92,7 +101,7 @@ To stop it:
 ./stop_parser.sh
 ```
 
-Logs are written to `launchd_stdout.log` and `launchd_stderr.log` in the project root. If your Spotify token expires, a macOS notification will fire telling you to re-run the parser manually.
+Logs go to `launchd_stdout.log` and `launchd_stderr.log` in the project root. If your Spotify token expires, a macOS notification fires telling you to re-authenticate manually.
 
 **6. Review and dismiss recommendations**
 
@@ -100,7 +109,7 @@ Logs are written to `launchd_stdout.log` and `launchd_stderr.log` in the project
 python3 src/dismiss.py
 ```
 
-Shows your current recommendations one at a time. Press `d` to dismiss, Enter to keep, `q` to quit. Dismissed tracks are saved to `dismissed.json` and permanently excluded from future runs.
+Shows your current recommendations one at a time. `d` to dismiss, Enter to keep, `q` to quit. Dismissed tracks are saved to `dismissed.json` and never surface again.
 
 ---
 
@@ -108,12 +117,12 @@ Shows your current recommendations one at a time. Press `d` to dismiss, Enter to
 
 | File | Contents |
 |---|---|
-| `listening_history.json` | Accumulated recently played, deduped by track, newest first |
-| `last_recently_played.json` | State snapshot for detecting when Spotify's 50-play window rotates |
-| `discovered_tracks.json` | Tracks from your seed artists' catalogs, fetched each run for discovery |
-| `recommendations.csv` | Top 20 recommended tracks with similarity score and source (history/discovery) |
-| `recommended_history.json` | All track IDs ever recommended — used to prevent repeats across runs. Delete to reset. |
-| `dismissed.json` | Tracks you've explicitly dismissed — permanently excluded from recommendations |
+| `listening_history.json` | Accumulated recently played, deduped by track ID, newest first |
+| `last_recently_played.json` | Snapshot used to detect when Spotify's 50-play window rotates |
+| `discovered_tracks.json` | New candidate tracks from your seed artists' catalogs, fetched each run |
+| `recommendations.csv` | Top 5 recommended tracks with similarity score |
+| `recommended_history.json` | All track IDs ever recommended — delete to reset |
+| `dismissed.json` | Tracks explicitly dismissed — permanently excluded |
 
 All output files are gitignored.
 
@@ -125,28 +134,17 @@ All output files are gitignored.
 src/
   config.py          — loads .env, exposes credentials and output path
   auth.py            — OAuth flow, opens incognito browser on macOS
-  tracks.py          — fetches recently played and discovery tracks, manages history JSON files
-  recommendations.py — text embeddings over history + discovery pool → recommendations.csv
+  tracks.py          — fetches recently played + discovery tracks, manages history JSON
+  recommendations.py — text embeddings over discovery pool → recommendations.csv
   parser.py          — orchestrates everything in order
   dismiss.py         — interactive CLI to dismiss unwanted recommendations
 ```
-
-The OAuth token is cached in `.cache` (gitignored). Delete it to force re-authentication.
-
-### Recommendation pipeline
-
-Each run:
-1. Fetch the latest 50 recently played and merge into `listening_history.json`
-2. Browse the catalogs of your 5 most recently played artists to build a discovery pool (`discovered_tracks.json`)
-3. Embed all candidates (history + discovery, minus previously recommended and dismissed tracks) using `sentence-transformers`
-4. Use your 5 most recent plays as a query vector; return the 20 closest matches
-5. Persist recommended track IDs to `recommended_history.json` so they never repeat
 
 ---
 
 ## Limitations
 
-- **50-play window**: Spotify only exposes the last 50 recently played tracks via the API. The script accumulates these over time, but you have to run it frequently enough that the window doesn't rotate without you capturing it. A warning prints if the window has rotated since the last run.
-- **Library size**: The text embedding step runs locally on CPU. Large libraries (10k+ tracks) are slow but work fine.
-- **API restrictions**: Spotify deprecated the audio features, recommendations, and related-artists endpoints for basic developer apps in late 2024. Discovery here is based on browsing seed artists' own catalogs, not Spotify's similarity graph.
-- **`recommended_history.json` grows indefinitely**: over time the pool of unseen candidates shrinks. Delete the file to start fresh if recommendations run dry.
+- **50-play window**: Spotify only exposes the last 50 recently played tracks. Run the script frequently enough that the window doesn't rotate without you capturing it — a warning prints if it has.
+- **Text-only signal**: recommendations reflect artist/album/title similarity, not sonic similarity. Two very different-sounding tracks by the same artist are indistinguishable to this model.
+- **Candidate pool size**: capped at 100 tracks per run, sourced only from your 5 most recent seed artists. The pool is only as diverse as your recent listening.
+- **`recommended_history.json` grows indefinitely**: the pool of unseen candidates shrinks over time. Delete the file to start fresh.

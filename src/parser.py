@@ -54,8 +54,9 @@ def main():
 
     print("\n--- 🔍 Fetching discovery tracks from Spotify... ---")
     seed_artist_ids = [r["artist_id"] for r in recent_list[:5] if r.get("artist_id")]
+    history_ids = {t["track_id"] for t in listening_history if t.get("track_id")}
     market = user.get("country", "US")
-    discovered = tracks.fetch_discovered_tracks(sp, seed_artist_ids, limit=20, market=market)
+    discovered = tracks.fetch_discovered_tracks(sp, seed_artist_ids, limit=100, market=market, history_ids=history_ids)
     tracks.save_discovered_tracks(discovered, out_dir)
     print(f"--- ✅ Discovery: {len(discovered)} candidate tracks saved to discovered_tracks.json ---")
 

@@ -86,41 +86,38 @@ def _save_listening_history(rows, out_dir):
         pass
 
 
-def fetch_discovered_tracks(sp, seed_artist_ids, limit=20, market="US"):
+def fetch_discovered_tracks(sp, seed_artist_ids, limit=100, market="US", history_ids=None):
     """Discover new tracks by browsing the catalog of your recently played artists.
 
     For each seed artist: fetch their albums/singles and sample tracks from those.
-    This surfaces deeper cuts and recent releases you haven't heard yet.
+    Filters out any track already in listening history.
     Returns list of track row dicts (no played_at — suggestions, not plays).
     """
     rows = []
     if not seed_artist_ids:
         return rows
+    exclude = set(history_ids or [])
     try:
         seen_track_ids = set()
         for aid in list(seed_artist_ids)[:5]:
-            albums_resp = sp.artist_albums(aid, album_type="album,single", limit=5)
+            albums_resp = sp.artist_albums(aid, album_type="album,single", limit=10)
             for album in (albums_resp.get("items") or []):
                 album_id = album.get("id")
                 album_name = album.get("name", "")
                 if not album_id:
                     continue
-                tracks_resp = sp.album_tracks(album_id, limit=3)
+                tracks_resp = sp.album_tracks(album_id, limit=5)
                 for track in (tracks_resp.get("items") or []):
                     if not track or track.get("type") != "track":
                         continue
                     tid = track.get("id")
-                    if not tid or tid in seen_track_ids:
+                    if not tid or tid in seen_track_ids or tid in exclude:
                         continue
                     seen_track_ids.add(tid)
                     # SimplifiedTrackObject has no album field; inject it
                     rows.append(_track_row({**track, "album": {"name": album_name}}))
-                    if len(rows) >= limit:
-                        break
-                if len(rows) >= limit:
-                    break
-            if len(rows) >= limit:
-                break
+        if len(rows) > limit:
+            rows = rows[:limit]
     except Exception as e:
         print(f"    ⚠️ Error fetching discovery tracks: {e}")
     return rows
